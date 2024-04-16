@@ -7,6 +7,7 @@
 char * askForPassword();
 void parseArgv(int argc, char **argv);
 void printConfig();
+char * keyDerive(char * password);
 
 #define MAX_IP_LEN 40
 
