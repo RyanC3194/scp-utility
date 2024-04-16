@@ -14,6 +14,8 @@ int main(int argc, char **argv) {
 
     parseArgv(argc, argv, &port, &filename);
 
+    promptPassword(password);
+
 
     return 0;
 }
