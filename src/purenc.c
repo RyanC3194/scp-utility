@@ -1,6 +1,12 @@
 #include <gcrypt.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <sys/socket.h> 
+#include <unistd.h>
+#include <netinet/in.h>
+#include <stdbool.h>
+#include <arpa/inet.h>
 
 #include "purenc.h"
 
@@ -10,11 +16,33 @@ Config config;
 int main(int argc, char **argv) {
     parseArgv(argc, argv);
 
-    char * password = askForPassword();
+    char password[BUFFSIZE];
+    promptPassword(password);
+
+    if (config.mode == REMOTE) {
+        int status, vread, sockfd;
+        struct sockaddr_in server_addr;
+        char buffer[BUFFSIZE];
+        sockfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sockfd < 0) {
+            perror("socked failed");
+            exit(1);
+        }
+        server_addr.sin_family = AF_INET;
+        server_addr.sin_port = htons(config.port); 
+        if (inet_pton(AF_INET, config.ip, &server_addr.sin_addr) < 0) {
+            perror("inet pton");
+            exit(1);
+        }
+
+        status = connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr));
+
+        send(sockfd, "Test\n", 5, 0); 
+
+    }
 
 
-    free(password);
-    exit(0);
+    return 0;
 }
 
 void printConfig() {
@@ -70,8 +98,6 @@ void parseArgv(int argc, char **argv) {
         }
         config.port = atoi(argv[3] + ip_len + 1);
         
-        printf("%s\n", sep);
-        
     }
     else if (!strcmp("-l", argv[2])){
         config.mode = LOCAL;
@@ -85,13 +111,9 @@ void parseArgv(int argc, char **argv) {
 
 /*
  * askForPassword prompts user to a password used for encryption
- * @return: a char pointer to a start of the password string
  */
-char * askForPassword() {
-    char * pass = (char *) malloc(sizeof(char) * BUFFSIZE);
-
-    printf("Password: ");
-    fgets(pass, BUFFSIZE, stdin);
-
-    return pass;
+void promptPassword(char * password) {
+    printf("Password to encrypt the files under: ");
+    fgets(password, sizeof(password) - 1, stdin);
+    return;
 }

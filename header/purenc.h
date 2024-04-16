@@ -4,7 +4,7 @@
 
 #define BUFFSIZE 1024
 
-char * askForPassword();
+void promptPassword(char *);
 void parseArgv(int argc, char **argv);
 void printConfig();
 char * keyDerive(char * password);
