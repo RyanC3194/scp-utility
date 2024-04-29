@@ -9,39 +9,7 @@
 #include <arpa/inet.h>
 
 #include "purdec.h"
-
-// https://www.gnupg.org/documentation/manuals/gcrypt/Key-Derivation.html
-void * derive_key(char * password) {
-    int pass_len = strlen(password);
-    // no real salt for now
-    // TODO: generate random salt
-    char salt[8] = {1, 1, 1, 1, 1, 1, 1, 1};
-    void * key = malloc(32 * 8);
-
-    gcry_kdf_derive(password, pass_len, GCRY_KDF_PBKDF2, GCRY_CIPHER_AES256, salt, 8, 10, 32, key);
-
-    return key;
-}
-
-//https://www.gnupg.org/documentation/manuals/gcrypt/Working-with-hash-algorithms.html
-unsigned char * HMAC(void * m, size_t length, void * key) {
-    gcry_md_hd_t *hd = malloc(sizeof(gcry_md_hd_t));
-    gcry_error_t err = gcry_md_open (hd, GCRY_MD_SHA256, GCRY_MD_FLAG_HMAC);
-    if (err) {
-        fprintf(stderr, "gcry_md_open failed: %s\n", gcry_strerror(err));
-    }
-    err = gcry_md_setkey (*hd, key, 32);
-    if (err) {
-        fprintf(stderr, "gcry_md_setkey failed: %s\n", gcry_strerror(err));
-    }
-
-    gcry_md_final (*hd);
-
-    unsigned char * hash = gcry_md_read (*hd, GCRY_MD_SHA256);
-    
-    return hash;
-}
-
+#include "shared.c"
 
 void * decrypy_file(void * message, int length, void * key) {
     // cipher handler
@@ -73,10 +41,10 @@ void process_file(void * hash, void * cipher, int size, char * password, char * 
         return;
     }
     
-    decrypy_file(cipher, size - 32, derive_key(password));
+    decrypy_file(cipher, size, derive_key(password));
 
     FILE * fp_output = fopen(output_file_name, "w");
-    fwrite(cipher, size - 32, 1, fp_output);
+    fwrite(cipher, size, 1, fp_output);
     fclose(fp_output);
 
 }
@@ -168,11 +136,7 @@ int main(int argc, char **argv) {
     return 0;
 }
 
-void promptPassword(char * password) {
-    printf("Password to decrypt the files under: ");
-    fgets(password, sizeof(password) - 1, stdin);
-    return;
-}
+
 
 /*
  * displayHelp: Show the correct usuage of the program

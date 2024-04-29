@@ -7,7 +7,6 @@
 void promptPassword(char *);
 void parseArgv(int argc, char **argv);
 void printConfig();
-void * derive_key(char * password);
 void * encyrpy_file(char * password, void *key);
 
 #define MAX_IP_LEN 40
