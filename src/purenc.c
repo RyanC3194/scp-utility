@@ -68,9 +68,21 @@ int main(int argc, char **argv) {
     char password[BUFFSIZE];
     promptPassword(password);
 
-    void * key = derive_key(password);
+
+    void * salt = gcry_random_bytes (8, GCRY_STRONG_RANDOM);
+
+
+    void * key = derive_key(password, salt);
     void * cipher = encyrpt_file(config.input_file_name, key);
-    unsigned char * hash = HMAC(cipher, encrypt_size, key);
+
+    // HMAC || salt || cipher
+    void * hmac_salt_cipher = malloc(encrypt_size + 8 + 32);
+    memcpy(hmac_salt_cipher + 32, salt, 8);
+    memcpy(hmac_salt_cipher + 32 + 8, cipher, encrypt_size);
+    unsigned char * hash = HMAC(hmac_salt_cipher + 32, encrypt_size, key);
+    memcpy(hmac_salt_cipher, hash, 32);
+
+    
 
 
 
@@ -111,8 +123,7 @@ int main(int argc, char **argv) {
         }
         else {
             FILE * fp = fopen(output_file_name, "w");
-            fwrite(hash, 32, 1, fp);
-            fwrite(cipher, encrypt_size, 1, fp);
+            fwrite(hmac_salt_cipher, 32 + 8 + encrypt_size, 1, fp);
             fclose(fp);
         }
 

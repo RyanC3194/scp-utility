@@ -9,14 +9,12 @@
 #include <stdbool.h>
 #include <arpa/inet.h>
 
-#include "shared.h"
 
 // https://www.gnupg.org/documentation/manuals/gcrypt/Key-Derivation.html
-void * derive_key(char * password) {
+void * derive_key(char * password, char * salt) {
     int pass_len = strlen(password);
     // no real salt for now
     // TODO: generate random salt
-    char salt[8] = {1, 1, 1, 1, 1, 1, 1, 1};
     void * key = malloc(32);
 
     gcry_kdf_derive(password, pass_len, GCRY_KDF_PBKDF2, GCRY_CIPHER_AES256, salt, 8, 10, 32, key);

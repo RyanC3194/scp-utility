@@ -33,15 +33,17 @@ void * decrypy_file(void * message, int length, void * key) {
     return message;
 }
 
-void process_file(void * hash, void * cipher, int size, char * password, char * output_file_name) {
-    unsigned char * new_hash = HMAC(cipher, size, derive_key(password));
+void process_file(void * hash, void * salt, void * cipher, int size, char * password, char * output_file_name) {
+    
+    void * key = derive_key(password, salt);
+    unsigned char * new_hash = HMAC(cipher, size, key);
 
     if (memcmp(hash, new_hash, 32) != 0) {
         fprintf(stderr, "wrong hash");
         return;
     }
     
-    decrypy_file(cipher, size, derive_key(password));
+    decrypy_file(cipher, size, key);
 
     FILE * fp_output = fopen(output_file_name, "w");
     fwrite(cipher, size, 1, fp_output);
@@ -125,10 +127,13 @@ int main(int argc, char **argv) {
         void *hash = malloc(32);
         memcpy(hash, file_buf_input, 32);
         
-        void * cipher = malloc(size);
-        memcpy(cipher, file_buf_input + 32, size - 32);
+        void * salt = malloc(8);
+        memcpy(salt, file_buf_input + 32, 8);
 
-        process_file(hash, cipher, size - 32, password, output_file_name);
+        void * cipher = malloc(size);
+        memcpy(cipher, file_buf_input + 32 + 8, size - 32);
+
+        process_file(hash, salt, cipher, size - 32 - 8, password, output_file_name);
     }
 
 
