@@ -7,13 +7,14 @@
 void promptPassword(char *);
 void parseArgv(int argc, char **argv);
 void printConfig();
-char * keyDerive(char * password);
+void * derive_key(char * password);
+void * encyrpy_file(char * password, void *key);
 
 #define MAX_IP_LEN 40
 
 enum Mode {
-    LOCAL,
-    REMOTE
+    LOCAL = 1,
+    REMOTE = 2
 };
 
 typedef struct {

@@ -1,12 +1,85 @@
 #include <gcrypt.h>
+#include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include <sys/socket.h> 
 #include <unistd.h>
 #include <netinet/in.h>
 #include <stdbool.h>
+#include <arpa/inet.h>
 
 #include "purdec.h"
 
+// https://www.gnupg.org/documentation/manuals/gcrypt/Key-Derivation.html
+void * derive_key(char * password) {
+    int pass_len = strlen(password);
+    // no real salt for now
+    // TODO: generate random salt
+    char salt[8] = {1, 1, 1, 1, 1, 1, 1, 1};
+    void * key = malloc(32 * 8);
+
+    gcry_kdf_derive(password, pass_len, GCRY_KDF_PBKDF2, GCRY_CIPHER_AES256, salt, 8, 10, 32, key);
+
+    return key;
+}
+
+//https://www.gnupg.org/documentation/manuals/gcrypt/Working-with-hash-algorithms.html
+unsigned char * HMAC(void * m, size_t length, void * key) {
+    gcry_md_hd_t *hd = malloc(sizeof(gcry_md_hd_t));
+    gcry_error_t err = gcry_md_open (hd, GCRY_MD_SHA256, GCRY_MD_FLAG_HMAC);
+    if (err) {
+        fprintf(stderr, "gcry_md_open failed: %s\n", gcry_strerror(err));
+    }
+    err = gcry_md_setkey (*hd, key, 32);
+    if (err) {
+        fprintf(stderr, "gcry_md_setkey failed: %s\n", gcry_strerror(err));
+    }
+
+    gcry_md_final (*hd);
+
+    unsigned char * hash = gcry_md_read (*hd, GCRY_MD_SHA256);
+    
+    return hash;
+}
+
+
+void * decrypy_file(void * message, int length, void * key) {
+    // cipher handler
+    gcry_cipher_hd_t * hd = (gcry_cipher_hd_t  *) malloc(sizeof(gcry_cipher_hd_t ));
+    gcry_error_t err = gcry_cipher_open(hd, GCRY_CIPHER_AES256, GCRY_CIPHER_MODE_CBC, GCRY_CIPHER_CBC_CTS);
+    if (err) {
+        fprintf(stderr, "gcry_cipher_open failed: %s\n", gcry_strerror(err));
+    }
+
+    err = gcry_cipher_setkey(*hd, key, 32);
+    if (err) {
+        fprintf(stderr, "gcry_cipher_setkey failed: %s\n", gcry_strerror(err));
+    }
+
+    err = gcry_cipher_setiv(*hd, key, 16);
+    if (err) {
+        fprintf(stderr, "gcry_cipher_setiv failed: %s\n", gcry_strerror(err));
+    }
+
+    err = gcry_cipher_decrypt (*hd, message, length, NULL, 0);
+    return message;
+}
+
+void process_file(void * hash, void * cipher, int size, char * password, char * output_file_name) {
+    unsigned char * new_hash = HMAC(cipher, size, derive_key(password));
+
+    if (memcmp(hash, new_hash, 32) != 0) {
+        fprintf(stderr, "wrong hash");
+        return;
+    }
+    
+    decrypy_file(cipher, size - 32, derive_key(password));
+
+    FILE * fp_output = fopen(output_file_name, "w");
+    fwrite(cipher, size - 32, 1, fp_output);
+    fclose(fp_output);
+
+}
 
 int main(int argc, char **argv) {
     char password[BUFSIZE];
@@ -54,6 +127,40 @@ int main(int argc, char **argv) {
             printf("%d %s\n", vread, read_buffer);
 
         }
+    }
+    else {
+        FILE * fp;
+        char output_file_name[strlen(filename)];
+        strncpy(output_file_name, filename, strlen(filename));
+        output_file_name[strlen(filename) - 4] = '\0';
+        if (access(output_file_name, F_OK) == 0) {
+            fprintf(stderr, "%s exists. abort\n", output_file_name);
+            exit(1);
+        }
+        if (access(filename, F_OK) != 0) {
+            fprintf(stderr, "input file does not exist. abort\n", output_file_name);
+            exit(1);
+        }
+        FILE * fp_input = fopen(filename, "r");
+        // get file size
+        fseek(fp_input, 0, SEEK_END);
+        int size = ftell(fp_input);
+        fseek(fp_input, 0, SEEK_SET);
+        printf("%d\n", size);
+        char *file_buf_input = (char *) malloc(size);
+        if (fread(file_buf_input, 1, size, fp_input) != size) {
+            perror("fread");
+            exit(1);
+        }
+        fclose(fp_input);
+
+        void *hash = malloc(32);
+        memcpy(hash, file_buf_input, 32);
+        
+        void * cipher = malloc(size);
+        memcpy(cipher, file_buf_input + 32, size - 32);
+
+        process_file(hash, cipher, size - 32, password, output_file_name);
     }
 
 
