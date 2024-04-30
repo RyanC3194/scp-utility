@@ -11,6 +11,23 @@
 #include "purdec.h"
 #include "shared.c"
 
+#define V_C_SIZE 0
+#define V_S_SIZE 0
+
+// client's identification string
+char * V_C() {
+    return "";
+}
+
+// server's identification string
+char * V_S() {
+    return "";
+}
+
+// I_C and I_S is ignored
+
+
+
 void * decrypy_file(void * message, int length, void * key) {
     // cipher handler
     gcry_cipher_hd_t * hd = (gcry_cipher_hd_t  *) malloc(sizeof(gcry_cipher_hd_t ));
@@ -52,6 +69,13 @@ void process_file(void * hash, void * salt_cipher, int size, char * password, ch
 
 }
 
+char * receive_from_client(int connfd, long long shared_secret) {
+    int len;
+    read(connfd, &len, sizeof(int));
+    printf("Total size to receive: %d\n", len);
+    return NULL;
+}
+
 int main(int argc, char **argv) {
     char password[BUFSIZE];
     char * filename = NULL;
@@ -82,22 +106,25 @@ int main(int argc, char **argv) {
             perror("Bind failed");
             exit(1);
         }
-        if (listen(sockfd, 1) < 0) {
+        if (listen(sockfd, 10) < 0) {
             perror("Listen failed");
             exit(1);
         }
 
+        gcry_sexp_t pub_key, private_key;
+        ssh_rsa_key_gen(&pub_key, &private_key);
+
         while (true) {
             connfd = accept(sockfd, (struct sockaddr*)&client_address, &addr_len);
             if (connfd < 0) {
-                perror("Accept fialed");
+                perror("Accept failed");
                 exit(1);
             }
 
-            vread = read(connfd, read_buffer, BUFSIZE - 1);
-            printf("%d %lld\n", vread, *read_buffer);
-
             unsigned long long e;
+            vread = read(connfd, &e, sizeof(unsigned long long));
+            printf("received e: %lld, num bytes: %d\n", e, vread);
+
             e = *read_buffer;
 
             //diffie-hellman
@@ -105,6 +132,49 @@ int main(int argc, char **argv) {
             unsigned int y = *a % P;
             unsigned long long f = naive_pow(G, y) % P;
             printf("%d %lld\n", y, f);
+
+            unsigned long long k = naive_pow(e, y) % P;
+
+            // H = hash(V_C || V_S || K_S || e || f || K)
+            int pub_key_size = gcry_sexp_sprint(pub_key, GCRYSEXP_FMT_ADVANCED, NULL, 0);
+            void * buf = malloc(V_C_SIZE + V_S_SIZE + pub_key_size + 3 * sizeof(unsigned long long));
+            memcpy(buf, V_C(), V_C_SIZE);
+            memcpy(buf + V_C_SIZE, V_S(), V_S_SIZE);
+            gcry_sexp_sprint(pub_key, GCRYSEXP_FMT_ADVANCED, buf + V_C_SIZE + V_S_SIZE, pub_key_size);
+            memcpy(buf + V_C_SIZE + V_S_SIZE + pub_key_size, &e, sizeof(unsigned long long));
+            memcpy(buf + V_C_SIZE + V_S_SIZE + pub_key_size + sizeof(unsigned long long), &f, sizeof(unsigned long long));
+            memcpy(buf + V_C_SIZE + V_S_SIZE + pub_key_size + 2 * sizeof(unsigned long long), &k, sizeof(unsigned long long));
+
+            void * hash = hash_sha256(buf, V_C_SIZE + V_S_SIZE + pub_key_size + 3 * sizeof(unsigned long long));
+            
+            // convert hash to mpi for hashing
+            gcry_mpi_t hash_mpi;
+            gcry_error_t err = gcry_mpi_scan(&hash_mpi, GCRYMPI_FMT_USG, hash, 32, NULL);
+
+            // convert hash to s-expression
+            gcry_sexp_t s_hash, hash_signature;
+            err = gcry_sexp_build(&s_hash, NULL, "(data (flags raw) (value %m))", hash_mpi);
+            err = gcry_pk_sign(&hash_signature, s_hash, private_key);
+            char * pub_key_string = sexp_to_string(pub_key);
+
+
+            // (2) send K_S
+            int len = strlen(pub_key_string);
+            send(connfd, &len, sizeof(int), 0);
+            printf("|%d|\n", len);
+            send(connfd, pub_key_string, strlen(pub_key_string), 0);
+
+            // (3) send f
+            printf("%lld\n", f);
+            send(connfd, &f, sizeof(unsigned long long), 0);
+
+            // (4) send signature of H
+            char * signature_string = sexp_to_string(hash_signature);
+            len = strlen(signature_string);
+            send(connfd, &len, sizeof(int), 0);
+            printf("|%d|\n", len);
+            send(connfd, signature_string, strlen(signature_string), 0);
+            
 
         }
     }

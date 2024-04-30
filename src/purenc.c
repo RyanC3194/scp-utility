@@ -14,10 +14,9 @@
 
 
 Config config;
-int encrypt_size;
+int g_encrypt_size;
 
-//https://www.gnupg.org/documentation/manuals/gcrypt/Working-with-cipher-handles.html
-void * encyrpt_file(char * input_file_name, void * key) {
+void * encrypt_buf(char * buf, int size, void * key) {
     // cipher handler
     gcry_cipher_hd_t * hd = (gcry_cipher_hd_t  *) malloc(sizeof(gcry_cipher_hd_t ));
     gcry_error_t err = gcry_cipher_open(hd, GCRY_CIPHER_AES256, GCRY_CIPHER_MODE_CBC, GCRY_CIPHER_CBC_CTS);
@@ -35,7 +34,18 @@ void * encyrpt_file(char * input_file_name, void * key) {
         fprintf(stderr, "gcry_cipher_setiv failed: %s\n", gcry_strerror(err));
     }
 
+    err = gcry_cipher_encrypt(*hd, buf, size, NULL, 0);
+    if (err) {
+        fprintf(stderr, "gcry_cipher_encrypt failed: %s\n", gcry_strerror(err));
+    }
+    gcry_cipher_close(*hd);
+    
+    g_encrypt_size = size;
+    return buf;
+}
 
+//https://www.gnupg.org/documentation/manuals/gcrypt/Working-with-cipher-handles.html
+void * encyrpt_file(char * input_file_name, void * key) {
     // read the file
     FILE * fp = fopen(input_file_name, "r");
     // get file size
@@ -51,16 +61,11 @@ void * encyrpt_file(char * input_file_name, void * key) {
     }
     fclose(fp);
 
-    err = gcry_cipher_encrypt(*hd, file_buf, size, NULL, 0);
-    if (err) {
-        fprintf(stderr, "gcry_cipher_encrypt failed: %s\n", gcry_strerror(err));
-    }
-
-    encrypt_size = size;
-
+    encrypt_buf(file_buf, size, key);
 
     return file_buf;
 }
+
 
 
 int main(int argc, char **argv) {
@@ -76,6 +81,7 @@ int main(int argc, char **argv) {
 
     void * key = derive_key(password, salt);
     void * cipher = encyrpt_file(config.input_file_name, key);
+    int encrypt_size = g_encrypt_size;
 
     // HMAC || salt || cipher
     void * salt_cipher = malloc(encrypt_size + 8);
@@ -117,9 +123,45 @@ int main(int argc, char **argv) {
         unsigned int * a = gcry_random_bytes(1, GCRY_STRONG_RANDOM);
         unsigned int x = *a % P;
         unsigned long long e = naive_pow(G, x) % P;
-        printf("%d %lld\n", x, e);
 
-        send(sockfd, &e, sizeof(unsigned long long), 0);
+        printf("send e %lld\n", e);
+        // (1) send e
+        write(sockfd, &e, sizeof(unsigned long long));
+
+        gcry_sexp_t pub_key, private_key;
+        ssh_rsa_key_gen(&pub_key, &private_key);
+    
+        // recieve (2) k_s
+        int len;
+        vread = read(sockfd, &len, sizeof(int));
+        printf("|%d|\n", len);
+        vread = read(sockfd, buffer, len);
+        char * k_s = malloc(vread + 1);
+        strncpy(k_s, buffer, vread);
+        printf("%d %s\n\n\n", vread, k_s);
+
+
+        // receive (3) f
+        unsigned long long f;
+        vread = read(sockfd, &f, sizeof(unsigned long long));
+        printf("%d, %lld\n", vread, f);
+
+        // receive (4) signature of H
+        len = 0;
+        vread = read(sockfd, &len, sizeof(int));
+        printf("|%d|\n", len);
+        vread = read(sockfd, buffer, len);
+        char * h_signature = malloc(vread + 1);
+        strncpy(h_signature, buffer, vread);
+        printf("%d %s\n\n\n", vread, h_signature);
+
+        // verify k_s
+
+        // calculate shared secret
+        long long k = naive_pow(f, x) % P;
+
+        send_file(sockfd, cipher, encrypt_size, k);
+
 
     }
 

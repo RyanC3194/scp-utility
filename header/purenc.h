@@ -10,6 +10,7 @@ void printConfig();
 void * encyrpy_file(char * password, void *key);
 
 #define MAX_IP_LEN 40
+#define BUFSIZE 1024
 
 enum Mode {
     LOCAL = 1,

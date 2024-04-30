@@ -81,9 +81,9 @@ unsigned long long naive_pow(unsigned long long base, unsigned long exp) {
     return result;
 }
 
-void * hash(void * message, size_t length) {
+void * hash_sha256(void * message, size_t length) {
     gcry_md_hd_t *hd = malloc(sizeof(gcry_md_hd_t));
-    gcry_error_t err = gcry_md_open (hd, GCRY_MD_SHA1, 0);
+    gcry_error_t err = gcry_md_open (hd, GCRY_MD_SHA256, 0);
     if (err) {
         fprintf(stderr, "gcry_md_open failed: %s\n", gcry_strerror(err));
     }
@@ -95,4 +95,31 @@ void * hash(void * message, size_t length) {
     unsigned char * hash = gcry_md_read (*hd, GCRY_MD_SHA256);
     
     return hash;
+}
+
+
+char * sexp_to_string(gcry_sexp_t a) {
+     char *buf;
+     size_t size;
+
+     size = gcry_sexp_sprint(a, GCRYSEXP_FMT_ADVANCED, NULL, 0);
+     buf = gcry_xmalloc(size);
+
+     gcry_sexp_sprint(a, GCRYSEXP_FMT_ADVANCED, buf, size);
+     fprintf(stderr, "%.*s", (int) size, buf);
+     return buf;
+ }
+
+// generate public host key
+//https://www.gnupg.org/documentation/manuals/gcrypt/Working-with-S_002dexpressions.html
+//https://www.gnupg.org/documentation/manuals/gcrypt/Public_002dKey-Subsystem-Architecture.html#Public_002dKey-Subsystem-Architecture
+//https://www.gnupg.org/documentation/manuals/gcrypt-devel/General-public_002dkey-related-Functions.html#General-public_002dkey-related-Functions
+void ssh_rsa_key_gen(gcry_sexp_t * pub_key, gcry_sexp_t * private_key) {
+    gcry_sexp_t rsa_parms;
+    gcry_sexp_t rsa_keypair;
+    gcry_error_t err = gcry_sexp_build(&rsa_parms, NULL, "(genkey (rsa (nbits 4:2048)))");
+    err = gcry_pk_genkey(&rsa_keypair, rsa_parms);
+    *pub_key = gcry_sexp_find_token(rsa_keypair, "public-key", 0);
+    *private_key = gcry_sexp_find_token(rsa_keypair, "private-key", 0);
+
 }
