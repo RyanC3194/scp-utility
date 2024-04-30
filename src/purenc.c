@@ -13,30 +13,31 @@
 #include "shared.c"
 
 
-Config config;
-int g_encrypt_size;
+Config config; // config parsed from command line
+int g_encrypt_size; // the size of most recent encrypted message
 
+/*
+ * Encrypt buf in-place using AES256
+ */
 void * encrypt_buf(char * buf, int size, void * key) {
     // cipher handler
     gcry_cipher_hd_t * hd = (gcry_cipher_hd_t  *) malloc(sizeof(gcry_cipher_hd_t ));
     gcry_error_t err = gcry_cipher_open(hd, GCRY_CIPHER_AES256, GCRY_CIPHER_MODE_CBC, GCRY_CIPHER_CBC_CTS);
     if (err) {
         fprintf(stderr, "gcry_cipher_open failed: %s\n", gcry_strerror(err));
+        exit(1);
     }
 
     err = gcry_cipher_setkey(*hd, key, 32);
     if (err) {
         fprintf(stderr, "gcry_cipher_setkey failed: %s\n", gcry_strerror(err));
-    }
-
-    err = gcry_cipher_setiv(*hd, key, 16);
-    if (err) {
-        fprintf(stderr, "gcry_cipher_setiv failed: %s\n", gcry_strerror(err));
+        exit(1);
     }
 
     err = gcry_cipher_encrypt(*hd, buf, size, NULL, 0);
     if (err) {
         fprintf(stderr, "gcry_cipher_encrypt failed: %s\n", gcry_strerror(err));
+        exit(1);
     }
     gcry_cipher_close(*hd);
     
@@ -44,7 +45,9 @@ void * encrypt_buf(char * buf, int size, void * key) {
     return buf;
 }
 
-//https://www.gnupg.org/documentation/manuals/gcrypt/Working-with-cipher-handles.html
+/*
+ * Wrapper method for opening and then encrypt the file
+ */
 void * encyrpt_file(char * input_file_name, void * key) {
     // read the file
     FILE * fp = fopen(input_file_name, "r");
@@ -52,7 +55,6 @@ void * encyrpt_file(char * input_file_name, void * key) {
     fseek(fp, 0, SEEK_END);
     int size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
-    printf("%d\n", size);
 
     char *file_buf = (char *) malloc(size);
     if (fread(file_buf, 1, size, fp) != size) {
@@ -66,29 +68,42 @@ void * encyrpt_file(char * input_file_name, void * key) {
     return file_buf;
 }
 
-void send_file(int sockfd, void * buf, int size, long long shared_secret) {
-    // encrypt it using the shared secret
+/* 
+ *  Send a (encrypted) file to the remote
+ *  Its also encryted (some data) again using the shared secret derived from diffie-hellman (For no reason since we are manually typing the password to encrypt the file already)
+ *  Its also possible to encrypt all the data using this shared secret but I dont think DH is required at all so I didnt bother
+ */
+void send_file(int sockfd, void * buf, int size, long long shared_secret, char * filename) {
+    // artificially increase the share secret length to make it work with aes256 32 byte key len (prepanded zeroes effectly make it less secure. Use of proper secure prng is needed)
+    char * key = malloc(32);
+    bzero(key, 32);
+    *key = shared_secret;
+
+    // send filename
+    int len = strlen(filename); 
+    write(sockfd, &len, sizeof(int));
+    write(sockfd, filename, len);
+
+    // send thr rest
     void * buf_ = malloc(size);
     memcpy(buf_, buf, size);
 
-    //encrypt_buf(buf_, size, shared_secret);
-    printf("Total size to send: %d\n", size);
     write(sockfd, &size, sizeof(int));
+
+    encrypt_buf(buf_, size, key); // the only part that is encrypted by the shared secret from DH.
     write(sockfd, buf_, size);
-    printf("%lld\n", shared_secret);
     
 }
 
+/*
+ * Entry of the program. 
+ */
 int main(int argc, char **argv) {
     parseArgv(argc, argv);
-
     char password[BUFFSIZE];
     promptPassword(password);
 
-
-    //void * salt = gcry_random_bytes (8, GCRY_STRONG_RANDOM);
-    char  salt[8] = {66, 66, 66, 66, 66, 66, 66, 66};
-
+    void * salt = gcry_random_bytes (8, GCRY_STRONG_RANDOM);
 
     void * key = derive_key(password, salt);
     void * cipher = encyrpt_file(config.input_file_name, key);
@@ -103,11 +118,11 @@ int main(int argc, char **argv) {
     memcpy(hmac_salt_cipher, hash, 32);
     memcpy(hmac_salt_cipher + 32, salt_cipher, encrypt_size + 8);
 
-    
+    printf("Successfully encrypted the file %s\n", config.input_file_name);
 
-
-
+    // Need to perform remote mode
     if ((config.mode & REMOTE) != 0) {
+        // set up tcp connection
         int status, vread, sockfd;
         struct sockaddr_in server_addr;
         char buffer[BUFFSIZE];
@@ -128,97 +143,80 @@ int main(int argc, char **argv) {
             exit(0);
         }
 
-        printf("Connected\n");
-
-        // begin diffie-hellman
-        unsigned int * a = gcry_random_bytes(1, GCRY_STRONG_RANDOM);
+        //==============begin diffie-hellman=============
+        unsigned int * a = gcry_random_bytes(4, GCRY_STRONG_RANDOM);
         unsigned int x = *a % P;
-        unsigned long long e = naive_pow(G, x) % P;
+        unsigned long long e = naive_pow(G, x, P);
 
-        printf("send e %lld\n", e);
         // (1) send e
         write(sockfd, &e, sizeof(unsigned long long));
 
         gcry_sexp_t pub_key, private_key;
-        ssh_rsa_key_gen(&pub_key, &private_key);
+        rsa_key_gen(&pub_key, &private_key);
     
         // recieve (2) k_s
         int len;
         vread = read(sockfd, &len, sizeof(int));
-        printf("|%d|\n", len);
         vread = read(sockfd, buffer, len);
         char * k_s = malloc(vread + 1);
         strncpy(k_s, buffer, vread);
-        printf("%d %s\n\n\n", vread, k_s);
 
 
         // receive (3) f
         unsigned long long f;
         vread = read(sockfd, &f, sizeof(unsigned long long));
-        printf("%d, %lld\n", vread, f);
 
         // receive (4) signature of H
         len = 0;
         vread = read(sockfd, &len, sizeof(int));
-        printf("|%d|\n", len);
         vread = read(sockfd, buffer, len);
         char * h_signature = malloc(vread + 1);
         strncpy(h_signature, buffer, vread);
-        printf("%d %s\n\n\n", vread, h_signature);
 
-        // verify k_s
+        // verify k_s (host key)
+        // Not implemented
 
         // calculate shared secret
-        long long k = naive_pow(f, x) % P;
+        long long k = naive_pow(f, x, P);
 
-        send_file(sockfd, hmac_salt_cipher, encrypt_size + 32 + 8, k);
+        //===========End of DH=================
 
-        printf("f: %d\n", f);
-        printf("e: %d\n", e);
-
-
+        send_file(sockfd, hmac_salt_cipher, encrypt_size + 32 + 8, k, config.input_file_name);
+        printf("Transmitted to %s:%d\n", config.ip, config.port);
     }
 
+    // perform local mode when needed
     if ((config.mode & LOCAL) != 0) {
-        // test the existance of the file
         char output_file_name[strlen(config.input_file_name) + 4];
         strncpy(output_file_name, config.input_file_name, strlen(config.input_file_name));
         strcpy(output_file_name + strlen(config.input_file_name), ".pur");
-        printf("%s\n", output_file_name);
+        // check the existance of the output file
         if (access(output_file_name, F_OK) == 0) {
             fprintf(stderr, "%s exists. abort\n", output_file_name);
             exit(1);
         }
         else {
+            // save the file
             FILE * fp = fopen(output_file_name, "wb");
             fwrite(hmac_salt_cipher, 32 + 8 + encrypt_size, 1, fp);
             fclose(fp);
         }
-
+        printf("Encrypted file has been saved to %s\n", output_file_name);
     }
-
-
     return 0;
 }
 
-void printConfig() {
-    printf("==================================\nCONFIG:\n");
-    printf("Input file: %s\n", config.input_file_name);
-    if (config.mode == LOCAL) {
-        printf("Mode: Local\n");
-    }
-    else {
-        printf("Mode: Remote\n");
-        printf("IP: %s\n", config.ip);
-        printf("PORT: %d\n", config.port);
-    }
-    printf("==================================\n");
-}
-
+/* 
+ * Display help message on how to call this program
+ */
 void displayHelp() {
     printf("Usuage: purenc <input file> [-d <output IP-addr:port>] [-l]\n");
 }
 
+
+/*
+ * Parse the command line argument to determine the inputfile, mode, and remote address when applicable.
+ */
 void parseArgv(int argc, char **argv) {
     if (argc < 3) {
         displayHelp();
@@ -287,7 +285,6 @@ void parseArgv(int argc, char **argv) {
         displayHelp();
         exit(0);
     }
-    printConfig();
 } 
 
 

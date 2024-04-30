@@ -28,32 +28,38 @@ const long BIG_PRIME[64] = {
 */
 
 // using small prime to test first
-const long long P = 29;
-const int G = 2;
+// didnt end up using a proper large safe prime because I dont think its within the scope of this assignment
+const long long P = 1048343; // the largest safe prime in this list: https://prime-numbers.info/list/safe-primes-page-4
+const int G = 2; // 2 is a primitive root of 1048343
 
-// https://www.gnupg.org/documentation/manuals/gcrypt/Key-Derivation.html
+/*
+ * Derive a key from the user input password and a randomly generated salt
+ * https://www.gnupg.org/documentation/manuals/gcrypt/Key-Derivation.html
+ */
 void * derive_key(char * password, char * salt) {
     int pass_len = strlen(password);
-    // no real salt for now
-    // TODO: generate random salt
     void * key = malloc(32);
-
-    gcry_kdf_derive(password, pass_len, GCRY_KDF_PBKDF2, GCRY_CIPHER_AES256, salt, 8, 10, 32, key);
-
+    gcry_kdf_derive(password, pass_len, GCRY_KDF_PBKDF2, GCRY_CIPHER_AES256, salt, 8, 600000, 32, key);
     return key;
 }
 
 
-//https://www.gnupg.org/documentation/manuals/gcrypt/Working-with-hash-algorithms.html
+/*
+ * Using SHA256 to calculate HMAC on any message.
+ * @Return HMAC_key(m)
+ * https://www.gnupg.org/documentation/manuals/gcrypt/Working-with-hash-algorithms.html
+ */
 unsigned char * HMAC(void * m, size_t length, void * key) {
     gcry_md_hd_t *hd = malloc(sizeof(gcry_md_hd_t));
     gcry_error_t err = gcry_md_open (hd, GCRY_MD_SHA256, GCRY_MD_FLAG_HMAC);
     if (err) {
         fprintf(stderr, "gcry_md_open failed: %s\n", gcry_strerror(err));
+        exit(1);
     }
     err = gcry_md_setkey (*hd, key, 32);
     if (err) {
         fprintf(stderr, "gcry_md_setkey failed: %s\n", gcry_strerror(err));
+        exit(1);
     }
 
     gcry_md_write (*hd, m, length);
@@ -65,27 +71,35 @@ unsigned char * HMAC(void * m, size_t length, void * key) {
 }
 
 /*
- * askForPassword prompts user to a password used for encryption
+ * prompts user for a password for encryption/decryption
  */
 void promptPassword(char * password) {
-    printf("Password to encrypt the files under: ");
+    printf("Password to encrypt/decrypt the file: ");
     fgets(password, sizeof(password) - 1, stdin);
     return;
 }
 
-unsigned long long naive_pow(unsigned long long base, unsigned long exp) {
+/*
+ * Slow and naive way to base^exp % p
+ */
+unsigned long long naive_pow(unsigned long long base, unsigned long exp, int p) {
     unsigned long long result = 1;
     for (long i = 0; i < exp; i++) {
         result *= base;
+        result %= p;
     }
     return result;
 }
 
+/*
+ * returns the Hash of message using sha256
+ */
 void * hash_sha256(void * message, size_t length) {
     gcry_md_hd_t *hd = malloc(sizeof(gcry_md_hd_t));
     gcry_error_t err = gcry_md_open (hd, GCRY_MD_SHA256, 0);
     if (err) {
         fprintf(stderr, "gcry_md_open failed: %s\n", gcry_strerror(err));
+        exit(1);
     }
 
     gcry_md_write (*hd, message, length);
@@ -97,7 +111,9 @@ void * hash_sha256(void * message, size_t length) {
     return hash;
 }
 
-
+/*
+ * Convert s-expression to string
+ */
 char * sexp_to_string(gcry_sexp_t a) {
      char *buf;
      size_t size;
@@ -106,19 +122,28 @@ char * sexp_to_string(gcry_sexp_t a) {
      buf = gcry_xmalloc(size);
 
      gcry_sexp_sprint(a, GCRYSEXP_FMT_ADVANCED, buf, size);
-     fprintf(stderr, "%.*s", (int) size, buf);
      return buf;
  }
 
-// generate public host key
-//https://www.gnupg.org/documentation/manuals/gcrypt/Working-with-S_002dexpressions.html
-//https://www.gnupg.org/documentation/manuals/gcrypt/Public_002dKey-Subsystem-Architecture.html#Public_002dKey-Subsystem-Architecture
-//https://www.gnupg.org/documentation/manuals/gcrypt-devel/General-public_002dkey-related-Functions.html#General-public_002dkey-related-Functions
-void ssh_rsa_key_gen(gcry_sexp_t * pub_key, gcry_sexp_t * private_key) {
+/*
+ * Generate a random rsa key pair
+ */
+void rsa_key_gen(gcry_sexp_t * pub_key, gcry_sexp_t * private_key) {
     gcry_sexp_t rsa_parms;
     gcry_sexp_t rsa_keypair;
     gcry_error_t err = gcry_sexp_build(&rsa_parms, NULL, "(genkey (rsa (nbits 4:2048)))");
+    if (err) {
+        fprintf(stderr, "gcry_sexp_build failed: %s\n", gcry_strerror(err));
+        exit(1);
+    }
+
     err = gcry_pk_genkey(&rsa_keypair, rsa_parms);
+    if (err) {
+        fprintf(stderr, "gcry_pk_genkey failed: %s\n", gcry_strerror(err));
+        exit(1);
+    }
+
+    
     *pub_key = gcry_sexp_find_token(rsa_keypair, "public-key", 0);
     *private_key = gcry_sexp_find_token(rsa_keypair, "private-key", 0);
 
