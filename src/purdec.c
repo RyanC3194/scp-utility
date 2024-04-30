@@ -33,20 +33,21 @@ void * decrypy_file(void * message, int length, void * key) {
     return message;
 }
 
-void process_file(void * hash, void * salt, void * cipher, int size, char * password, char * output_file_name) {
+void process_file(void * hash, void * salt_cipher, int size, char * password, char * output_file_name) {
     
-    void * key = derive_key(password, salt);
-    unsigned char * new_hash = HMAC(cipher, size, key);
+    void * key = derive_key(password, salt_cipher);
+    
+    unsigned char * new_hash = HMAC(salt_cipher, size, key);
 
     if (memcmp(hash, new_hash, 32) != 0) {
-        fprintf(stderr, "wrong hash");
-        return;
+        fprintf(stderr, "wrong hash\n");
+        //return;
     }
     
-    decrypy_file(cipher, size, key);
+    decrypy_file(salt_cipher + 8, size - 8, key);
 
     FILE * fp_output = fopen(output_file_name, "w");
-    fwrite(cipher, size, 1, fp_output);
+    fwrite(salt_cipher + 8, size - 8, 1, fp_output);
     fclose(fp_output);
 
 }
@@ -94,7 +95,16 @@ int main(int argc, char **argv) {
             }
 
             vread = read(connfd, read_buffer, BUFSIZE - 1);
-            printf("%d %s\n", vread, read_buffer);
+            printf("%d %lld\n", vread, *read_buffer);
+
+            unsigned long long e;
+            e = *read_buffer;
+
+            //diffie-hellman
+            unsigned int * a = gcry_random_bytes(1, GCRY_STRONG_RANDOM);
+            unsigned int y = *a % P;
+            unsigned long long f = naive_pow(G, y) % P;
+            printf("%d %lld\n", y, f);
 
         }
     }
@@ -127,13 +137,7 @@ int main(int argc, char **argv) {
         void *hash = malloc(32);
         memcpy(hash, file_buf_input, 32);
         
-        void * salt = malloc(8);
-        memcpy(salt, file_buf_input + 32, 8);
-
-        void * cipher = malloc(size);
-        memcpy(cipher, file_buf_input + 32 + 8, size - 32);
-
-        process_file(hash, salt, cipher, size - 32 - 8, password, output_file_name);
+        process_file(hash, file_buf_input + 32, size - 32, password, output_file_name);
     }
 
 

@@ -18,7 +18,7 @@ enum Mode {
 
 typedef struct {
     enum Mode mode;
-    const char *input_file_name;
+    char *input_file_name;
     char ip[MAX_IP_LEN];
     int port;
 } Config;

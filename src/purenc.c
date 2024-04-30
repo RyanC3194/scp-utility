@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <stdbool.h>
 #include <arpa/inet.h>
+#include <math.h>
 
 #include "purenc.h"
 #include "shared.c"
@@ -69,18 +70,21 @@ int main(int argc, char **argv) {
     promptPassword(password);
 
 
-    void * salt = gcry_random_bytes (8, GCRY_STRONG_RANDOM);
+    //void * salt = gcry_random_bytes (8, GCRY_STRONG_RANDOM);
+    char  salt[8] = {66, 66, 66, 66, 66, 66, 66, 66};
 
 
     void * key = derive_key(password, salt);
     void * cipher = encyrpt_file(config.input_file_name, key);
 
     // HMAC || salt || cipher
+    void * salt_cipher = malloc(encrypt_size + 8);
+    memcpy(salt_cipher, salt, 8);
+    memcpy(salt_cipher + 8, cipher, encrypt_size);
+    unsigned char * hash = HMAC(salt_cipher, encrypt_size + 8, key);
     void * hmac_salt_cipher = malloc(encrypt_size + 8 + 32);
-    memcpy(hmac_salt_cipher + 32, salt, 8);
-    memcpy(hmac_salt_cipher + 32 + 8, cipher, encrypt_size);
-    unsigned char * hash = HMAC(hmac_salt_cipher + 32, encrypt_size, key);
     memcpy(hmac_salt_cipher, hash, 32);
+    memcpy(hmac_salt_cipher + 32, salt_cipher, encrypt_size + 8);
 
     
 
@@ -107,7 +111,15 @@ int main(int argc, char **argv) {
             exit(0);
         }
 
-        send(sockfd, "Test\n", 5, 0); 
+        printf("Connected\n");
+
+        // begin diffie-hellman
+        unsigned int * a = gcry_random_bytes(1, GCRY_STRONG_RANDOM);
+        unsigned int x = *a % P;
+        unsigned long long e = naive_pow(G, x) % P;
+        printf("%d %lld\n", x, e);
+
+        send(sockfd, &e, sizeof(unsigned long long), 0);
 
     }
 
@@ -122,7 +134,7 @@ int main(int argc, char **argv) {
             exit(1);
         }
         else {
-            FILE * fp = fopen(output_file_name, "w");
+            FILE * fp = fopen(output_file_name, "wb");
             fwrite(hmac_salt_cipher, 32 + 8 + encrypt_size, 1, fp);
             fclose(fp);
         }
@@ -164,7 +176,6 @@ void parseArgv(int argc, char **argv) {
     if (!strcmp("-d", argv[2])) {
         if (argc == 4 || argc == 5) {
             config.mode = REMOTE;
-
             char * sep = strchr(argv[3], ':');
             if (sep == NULL) {
                 displayHelp();
@@ -189,10 +200,6 @@ void parseArgv(int argc, char **argv) {
             if (argc == 5) {
                 config.mode |= LOCAL;
             }
-        else {
-            displayHelp();
-            exit(0);
-        }
     }
     else if (!strcmp("-l", argv[2])){
         config.mode = LOCAL;
