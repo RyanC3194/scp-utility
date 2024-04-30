@@ -69,11 +69,14 @@ void process_file(void * hash, void * salt_cipher, int size, char * password, ch
 
 }
 
-char * receive_from_client(int connfd, long long shared_secret) {
+int receive_from_client(int connfd, long long shared_secret, char ** buf) {
     int len;
     read(connfd, &len, sizeof(int));
     printf("Total size to receive: %d\n", len);
-    return NULL;
+    *buf = malloc(len);
+    int vread = read(connfd, *buf, len);
+    printf("%d\n", vread);
+    return len;
 }
 
 int main(int argc, char **argv) {
@@ -118,14 +121,12 @@ int main(int argc, char **argv) {
             connfd = accept(sockfd, (struct sockaddr*)&client_address, &addr_len);
             if (connfd < 0) {
                 perror("Accept failed");
-                exit(1);
+                continue;
             }
 
             unsigned long long e;
             vread = read(connfd, &e, sizeof(unsigned long long));
             printf("received e: %lld, num bytes: %d\n", e, vread);
-
-            e = *read_buffer;
 
             //diffie-hellman
             unsigned int * a = gcry_random_bytes(1, GCRY_STRONG_RANDOM);
@@ -174,7 +175,22 @@ int main(int argc, char **argv) {
             send(connfd, &len, sizeof(int), 0);
             printf("|%d|\n", len);
             send(connfd, signature_string, strlen(signature_string), 0);
+
+            char * file;
+            int file_size = receive_from_client(connfd, k, &file);
+            // a valid fill will awlays contian hash and salt
+            if (file_size <= 8 + 32) {
+                continue;
+            }
+
+            void * hash_ = malloc(32);
+            memcpy(hash_, file, 32);
+
+            process_file(hash, file + 32, file_size - 32, password, "test");
+            printf("DONE %d\n", k);
+            printf("f: %d\n", f);
             
+            printf("e: %d\n", e);
 
         }
     }

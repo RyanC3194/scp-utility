@@ -66,7 +66,18 @@ void * encyrpt_file(char * input_file_name, void * key) {
     return file_buf;
 }
 
+void send_file(int sockfd, void * buf, int size, long long shared_secret) {
+    // encrypt it using the shared secret
+    void * buf_ = malloc(size);
+    memcpy(buf_, buf, size);
 
+    //encrypt_buf(buf_, size, shared_secret);
+    printf("Total size to send: %d\n", size);
+    write(sockfd, &size, sizeof(int));
+    write(sockfd, buf_, size);
+    printf("%lld\n", shared_secret);
+    
+}
 
 int main(int argc, char **argv) {
     parseArgv(argc, argv);
@@ -160,7 +171,10 @@ int main(int argc, char **argv) {
         // calculate shared secret
         long long k = naive_pow(f, x) % P;
 
-        send_file(sockfd, cipher, encrypt_size, k);
+        send_file(sockfd, hmac_salt_cipher, encrypt_size + 32 + 8, k);
+
+        printf("f: %d\n", f);
+        printf("e: %d\n", e);
 
 
     }
