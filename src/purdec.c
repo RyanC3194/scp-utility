@@ -58,6 +58,7 @@ void process_file(void * hash, void * salt_cipher, int size, char * password, ch
 
     if (memcmp(hash, new_hash, 32) != 0) {
         fprintf(stderr, "wrong hash\n");
+        printf("%d\n", memcmp(hash, new_hash, 32));
         //return;
     }
     
@@ -183,10 +184,12 @@ int main(int argc, char **argv) {
                 continue;
             }
 
-            void * hash_ = malloc(32);
-            memcpy(hash_, file, 32);
 
-            process_file(hash, file + 32, file_size - 32, password, "test");
+            void *hash_ = malloc(32);
+            memcpy(hash_, file, 32);
+            
+            process_file(hash_, file + 32, file_size - 32, password, "aaa");
+
             printf("DONE %d\n", k);
             printf("f: %d\n", f);
             
