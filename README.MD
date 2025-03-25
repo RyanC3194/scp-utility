@@ -1,19 +1,4 @@
-Name: Ryan Chen
-puid: 0031427134
-purdue email: chen3194@Purdue.edu
-
-
-List of submitted files: 
- - header/purdec.h
- - header/purenc.h
- - src/purdec.c
- - src/purenc.c
- - src/shared.c
- - Makefile
- - README.txt
-
-
-Overview of the work accomplished:
+Overview:
  - Parse command line argument for both purdec and purenc.
  - Encrypt file using key derived with PBKDF2 from user input password, and attach HMAC to it.
  - Save and/or send the file to remote.
@@ -71,24 +56,4 @@ Code layout:
     - rsa key gen (line 128)
 
 
-Design decisions:
 
-I would say most of my design are pretty standard, seperate each part (parse argv, key-gen, encryption/decryption, network) of the program into its own functions. However, there are few parts that isnt the best. 
-To start off, the part that parse the command line argument for 'purenc' is written poorly because I didnt account for having both local and remote mode run at the same time, and modifying it led to the messy parsing.
-The major design choose that Im not satisfy is the DH part. Once I realize that this part is not strictly necessory (via piazza post @178 and redundent double encryption), I opted into making that part working instead of keep improving it. (such as using mpi to store large prime, verify server integerty, etc). After all, that part is largely taken care of by manually inputting password on both the server and the client. That being said, if I have more time I would defintely try to use a proper safe and large enough prime and a more effecieny modulo calculation.
-Another design choise I made is not hide the purdec "daemon". This is because the user needs to input password into it every time a new file is coming from a client, so there isnt much point hiding it.
-
-
-
-PBKDF2:
-If this extra input refers to iterations, I set it to 600,000 because I search up the recommended iterations for it. And I would say the people setting those recommendation know a lot better than I do.
-
-
-Number of Hours / level of efforts:
-Parsing: ~30 hour, pretty standard stuff
-tcp: ~30 minutes, also pretty stndard
-key drive + encryption + decryption + HMAC: ~ 5 hours. Mostly spent on documation and debugging, but not that troublsome as it overlaps with lab2
-DH: 10 hours ish. A lot of looking at SSH and gcrypt documentation and experimenting. I would say its the most diffucult part for me.
-
-Overall I think its easlier than the VPN lab but slightly harder than the other two.
-However, if DH and all secure connection in SSH needs to be (properly) implemented, than it would definitely be way harder.
